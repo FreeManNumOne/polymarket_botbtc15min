@@ -64,8 +64,8 @@ def load_config() -> Config:
     )
     
     trading = TradingConfig(
-        target_margin=float(os.getenv("TARGET_MARGIN", "0.02")),
-        min_profit=float(os.getenv("MIN_PROFIT", "0.01")),
+        target_margin=float(os.getenv("TARGET_MARGIN", "0.03")),  # 3% margin below fair value
+        min_profit=float(os.getenv("MIN_PROFIT", "0.02")),  # 2% minimum locked profit
         stop_loss_threshold=float(os.getenv("STOP_LOSS_THRESHOLD", "0.15")),
         gamma_stop_minutes=float(os.getenv("GAMMA_STOP_MINUTES", "2")),
         position_size=float(os.getenv("POSITION_SIZE", "50.0")),

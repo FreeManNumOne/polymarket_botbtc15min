@@ -148,7 +148,14 @@ class MarketDiscovery:
             market = markets[0]
             
             # Get token IDs - format is [Up token, Down token]
-            token_ids = market.get("clobTokenIds", [])
+            # Note: clobTokenIds comes as a JSON string, not a list!
+            token_ids_raw = market.get("clobTokenIds", "[]")
+            if isinstance(token_ids_raw, str):
+                import json
+                token_ids = json.loads(token_ids_raw)
+            else:
+                token_ids = token_ids_raw
+            
             if len(token_ids) < 2:
                 return None
             

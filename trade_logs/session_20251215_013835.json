@@ -1,0 +1,202 @@
+{
+  "session_name": "20251215_013835",
+  "session_start": "2025-12-15T01:38:35.167277",
+  "session_end": "2025-12-15T02:16:54.269898",
+  "trades": [
+    {
+      "timestamp": "2025-12-15T01:39:28.856328",
+      "market_slug": "btc-updown-15m-1765791000",
+      "asset": "BTC",
+      "side": "YES",
+      "action": "BUY",
+      "price": 0.26,
+      "quantity": 181.8181818181818,
+      "value": 47.27272727272727,
+      "state": "LEGGED_YES"
+    },
+    {
+      "timestamp": "2025-12-15T01:39:28.858071",
+      "market_slug": "btc-updown-15m-1765791000",
+      "asset": "BTC",
+      "side": "NO",
+      "action": "BUY",
+      "price": 0.72,
+      "quantity": 181.8181818181818,
+      "value": 130.9090909090909,
+      "state": "LOCKED"
+    },
+    {
+      "timestamp": "2025-12-15T01:48:20.465590",
+      "market_slug": "btc-updown-15m-1765791900",
+      "asset": "BTC",
+      "side": "YES",
+      "action": "BUY",
+      "price": 0.43,
+      "quantity": 114.9425287356322,
+      "value": 49.425287356321846,
+      "state": "LEGGED_YES"
+    },
+    {
+      "timestamp": "2025-12-15T01:49:03.504446",
+      "market_slug": "btc-updown-15m-1765791900",
+      "asset": "BTC",
+      "side": "NO",
+      "action": "BUY",
+      "price": 0.66,
+      "quantity": 75.18796992481204,
+      "value": 49.624060150375946,
+      "state": "LEGGED_NO"
+    },
+    {
+      "timestamp": "2025-12-15T01:50:13.777116",
+      "market_slug": "btc-updown-15m-1765791900",
+      "asset": "BTC",
+      "side": "NO",
+      "action": "BUY",
+      "price": 0.51,
+      "quantity": 96.15384615384615,
+      "value": 49.03846153846153,
+      "state": "LEGGED_NO"
+    },
+    {
+      "timestamp": "2025-12-15T01:50:31.406706",
+      "market_slug": "btc-updown-15m-1765791900",
+      "asset": "BTC",
+      "side": "YES",
+      "action": "BUY",
+      "price": 0.47,
+      "quantity": 106.38297872340426,
+      "value": 50.0,
+      "state": "LOCKED"
+    },
+    {
+      "timestamp": "2025-12-15T02:00:34.634690",
+      "market_slug": "btc-updown-15m-1765792800",
+      "asset": "BTC",
+      "side": "YES",
+      "action": "BUY",
+      "price": 0.54,
+      "quantity": 86.95652173913044,
+      "value": 46.95652173913044,
+      "state": "LEGGED_YES"
+    },
+    {
+      "timestamp": "2025-12-15T02:00:57.589837",
+      "market_slug": "btc-updown-15m-1765792800",
+      "asset": "BTC",
+      "side": "YES",
+      "action": "BUY",
+      "price": 0.4,
+      "quantity": 123.45679012345678,
+      "value": 49.382716049382715,
+      "state": "LEGGED_YES"
+    },
+    {
+      "timestamp": "2025-12-15T02:01:08.360833",
+      "market_slug": "btc-updown-15m-1765792800",
+      "asset": "BTC",
+      "side": "NO",
+      "action": "BUY",
+      "price": 0.58,
+      "quantity": 86.20689655172414,
+      "value": 50.0,
+      "state": "LOCKED"
+    },
+    {
+      "timestamp": "2025-12-15T02:16:12.331552",
+      "market_slug": "btc-updown-15m-1765793700",
+      "asset": "BTC",
+      "side": "NO",
+      "action": "BUY",
+      "price": 0.56,
+      "quantity": 88.49557522123895,
+      "value": 49.55752212389382,
+      "state": "LEGGED_NO"
+    },
+    {
+      "timestamp": "2025-12-15T02:16:54.267615",
+      "market_slug": "btc-updown-15m-1765793700",
+      "asset": "BTC",
+      "side": "YES",
+      "action": "BUY",
+      "price": 0.41,
+      "quantity": 119.04761904761907,
+      "value": 48.80952380952382,
+      "state": "LOCKED"
+    }
+  ],
+  "cycles": [
+    {
+      "cycle_id": "BTC_013835",
+      "market_slug": "btc-updown-15m-1765791000",
+      "asset": "BTC",
+      "start_time": "2025-12-15T01:38:35.778729",
+      "end_time": "2025-12-15T01:39:28.859468",
+      "up_entry_price": 0.26,
+      "up_entry_qty": 181.8181818181818,
+      "down_entry_price": 0.72,
+      "down_entry_qty": 181.8181818181818,
+      "total_cost": 178.1818181818182,
+      "locked_profit": 661.1570247933865,
+      "status": "LOCKED"
+    },
+    {
+      "cycle_id": "BTC_014430",
+      "market_slug": "btc-updown-15m-1765791900",
+      "asset": "BTC",
+      "start_time": "2025-12-15T01:44:30.542770",
+      "end_time": "2025-12-15T01:50:31.407710",
+      "up_entry_price": 0.47,
+      "up_entry_qty": 106.38297872340426,
+      "down_entry_price": 0.51,
+      "down_entry_qty": 96.15384615384615,
+      "total_cost": 99.03846153846153,
+      "locked_profit": 204.5826513911617,
+      "status": "LOCKED"
+    },
+    {
+      "cycle_id": "BTC_015930",
+      "market_slug": "btc-updown-15m-1765792800",
+      "asset": "BTC",
+      "start_time": "2025-12-15T01:59:30.635648",
+      "end_time": "2025-12-15T02:01:08.361422",
+      "up_entry_price": 0.4,
+      "up_entry_qty": 123.45679012345678,
+      "down_entry_price": 0.58,
+      "down_entry_qty": 86.20689655172414,
+      "total_cost": 99.38271604938271,
+      "locked_profit": 148.63258026159406,
+      "status": "LOCKED"
+    },
+    {
+      "cycle_id": "BTC_021430",
+      "market_slug": "btc-updown-15m-1765793700",
+      "asset": "BTC",
+      "start_time": "2025-12-15T02:14:30.613694",
+      "end_time": "2025-12-15T02:16:54.269835",
+      "up_entry_price": 0.41,
+      "up_entry_qty": 119.04761904761907,
+      "down_entry_price": 0.56,
+      "down_entry_qty": 88.49557522123895,
+      "total_cost": 98.36704593341764,
+      "locked_profit": 316.0556257901382,
+      "status": "LOCKED"
+    }
+  ],
+  "stats": {
+    "total_trades": 11,
+    "total_cycles": 4,
+    "completed_cycles": 4,
+    "locked_cycles": 4,
+    "stopped_cycles": 0,
+    "expired_cycles": 0,
+    "gross_profit": 1330.4278822362805,
+    "gross_loss": 0.0,
+    "net_pnl": 1330.4278822362805,
+    "win_rate": 1.0,
+    "avg_profit_per_cycle": 332.60697055907013,
+    "start_time": "2025-12-15T01:38:35.167277",
+    "end_time": "2025-12-15T02:16:54.270044",
+    "duration_hours": 0.6386396583333334
+  }
+}

@@ -6,6 +6,7 @@ import asyncio
 import logging
 import sys
 from datetime import datetime, timedelta
+from typing import Optional
 
 from config import load_config, MarketConfig
 from bot import LeggedArbBot
@@ -67,6 +68,7 @@ async def run_with_discovery(
     asset: str = "BTC",
     paper_mode: bool = True,
     continuous: bool = False,
+    duration_hours: Optional[float] = None,
 ):
     """
     Run bot with automatic market discovery.
@@ -75,89 +77,126 @@ async def run_with_discovery(
         asset: "BTC" or "ETH"
         paper_mode: If True, use paper trading
         continuous: If True, automatically find next market when current expires
+        duration_hours: If set, run for this many hours then stop
     """
+    from trade_logger import TradeLogger
+    
     config = load_config()
     config.paper_mode = paper_mode
     
-    while True:
-        try:
-            # Discover market
-            market_config, expiry_ts = await auto_discover_market(asset)
-            config.market = market_config
-            
-            # Initialize order manager
-            if config.paper_mode:
-                order_manager = PaperOrderManager(
-                    yes_token_id=config.market.yes_token_id,
-                    no_token_id=config.market.no_token_id,
-                )
-            else:
-                from py_clob_client.client import ClobClient
-                
-                clob_client = ClobClient(
-                    host=config.clob_host,
-                    chain_id=config.chain_id,
-                    key=config.private_key,
-                )
-                clob_client.set_api_creds(clob_client.derive_api_key())
-                
-                order_manager = LiveOrderManager(
-                    clob_client=clob_client,
-                    yes_token_id=config.market.yes_token_id,
-                    no_token_id=config.market.no_token_id,
-                )
-            
-            # Initialize market data
-            market_data = MarketDataManager(
-                use_live=not config.paper_mode,
-                symbols=["btcusdt" if asset == "BTC" else "ethusdt"],
-            )
-            
-            # Create bot
-            bot = LeggedArbBot(
-                config=config,
-                order_manager=order_manager,
-                market_data=market_data,
-            )
-            bot.set_expiry(expiry_ts)
-            
-            # Calculate how long to run
-            time_to_expiry = expiry_ts - datetime.now().timestamp()
-            run_duration = max(10, time_to_expiry - 60)  # Stop 1 min before expiry
-            
-            logger.info(f"⏱️  Running for {run_duration/60:.1f} minutes until near expiry")
-            
-            # Run bot with timeout
-            try:
-                await asyncio.wait_for(
-                    asyncio.gather(
-                        market_data.start(),
-                        bot.run(tick_interval=1.0),
-                    ),
-                    timeout=run_duration,
-                )
-            except asyncio.TimeoutError:
-                logger.info("⏰ Market cycle complete, cleaning up...")
-                await order_manager.cancel_all_orders()
-            
-            await market_data.stop()
-            
-            if not continuous:
+    # Create trade logger for the session
+    trade_logger = TradeLogger()
+    
+    # Calculate end time if duration specified
+    end_time = None
+    if duration_hours:
+        end_time = datetime.now().timestamp() + (duration_hours * 3600)
+        logger.info(f"📅 Will run for {duration_hours} hours")
+    
+    cycle_count = 0
+    
+    try:
+        while True:
+            # Check if we've exceeded duration
+            if end_time and datetime.now().timestamp() >= end_time:
+                logger.info("⏰ Duration limit reached")
                 break
             
-            # Wait for next cycle
-            logger.info("⏳ Waiting 30 seconds before discovering next market...")
-            await asyncio.sleep(30)
-            
-        except KeyboardInterrupt:
-            logger.info("Shutting down...")
-            break
-        except Exception as e:
-            logger.error(f"Error: {e}")
-            if not continuous:
+            try:
+                # Discover market
+                market_config, expiry_ts = await auto_discover_market(asset)
+                config.market = market_config
+                
+                # Get the slug for logging
+                discovery = MarketDiscovery()
+                market = await discovery.find_next_market(asset, min_time_remaining=60)
+                market_slug = market.slug if market else f"{asset}-unknown"
+                await discovery.close()
+                
+                cycle_count += 1
+                logger.info(f"🔄 Starting cycle #{cycle_count}: {market_slug}")
+                
+                # Start a new cycle in the logger
+                trade_logger.start_cycle(market_slug, asset)
+                
+                # Initialize order manager
+                if config.paper_mode:
+                    order_manager = PaperOrderManager(
+                        yes_token_id=config.market.yes_token_id,
+                        no_token_id=config.market.no_token_id,
+                    )
+                else:
+                    from py_clob_client.client import ClobClient
+                    
+                    clob_client = ClobClient(
+                        host=config.clob_host,
+                        chain_id=config.chain_id,
+                        key=config.private_key,
+                    )
+                    clob_client.set_api_creds(clob_client.derive_api_key())
+                    
+                    order_manager = LiveOrderManager(
+                        clob_client=clob_client,
+                        yes_token_id=config.market.yes_token_id,
+                        no_token_id=config.market.no_token_id,
+                    )
+                
+                # Create bot with trade logger
+                # Note: No external price feed needed - we use Polymarket order books directly
+                bot = LeggedArbBot(
+                    config=config,
+                    order_manager=order_manager,
+                    market_data=None,  # Not needed for up/down markets
+                    trade_logger=trade_logger,
+                    market_slug=market_slug,
+                    asset=asset,
+                )
+                bot.set_expiry(expiry_ts)
+                
+                # Calculate how long to run
+                time_to_expiry = expiry_ts - datetime.now().timestamp()
+                run_duration = max(10, time_to_expiry - 60)  # Stop 1 min before expiry
+                
+                logger.info(f"⏱️  Running for {run_duration/60:.1f} minutes until near expiry")
+                
+                # Run bot with timeout
+                try:
+                    await asyncio.wait_for(
+                        bot.run(tick_interval=1.0),
+                        timeout=run_duration,
+                    )
+                except asyncio.TimeoutError:
+                    logger.info("⏰ Market cycle complete, cleaning up...")
+                    await order_manager.cancel_all_orders()
+                    
+                    # Mark cycle as expired if not locked
+                    if trade_logger.current_cycle:
+                        trade_logger.complete_cycle("EXPIRED")
+                
+                if not continuous:
+                    break
+                
+                # Wait for next cycle
+                logger.info("⏳ Waiting 30 seconds before discovering next market...")
+                await asyncio.sleep(30)
+                
+            except KeyboardInterrupt:
                 raise
-            logger.info("Retrying in 30 seconds...")
-            await asyncio.sleep(30)
+            except Exception as e:
+                logger.error(f"Error in cycle: {e}")
+                if trade_logger.current_cycle:
+                    trade_logger.complete_cycle("STOPPED")
+                if not continuous:
+                    raise
+                logger.info("Retrying in 30 seconds...")
+                await asyncio.sleep(30)
+                
+    except KeyboardInterrupt:
+        logger.info("Shutting down...")
+    finally:
+        # Print summary
+        trade_logger.print_summary()
+        logger.info(f"📊 Trade log saved to: {trade_logger.log_file}")
 
 
 async def main(paper_mode: bool = None, asset: str = None, auto_discover: bool = False):
@@ -212,7 +251,7 @@ async def main(paper_mode: bool = None, asset: str = None, auto_discover: bool =
     
     # Initialize market data
     market_data = MarketDataManager(
-        use_live=not config.paper_mode,
+        use_live=True,  # Always use real Binance prices
         symbols=["btcusdt"],
     )
     
@@ -273,12 +312,36 @@ if __name__ == "__main__":
         dest="list_markets",
         help="List all available 15-minute markets and exit",
     )
+    parser.add_argument(
+        "--continuous",
+        action="store_true",
+        help="Run continuously, automatically moving to next market cycle",
+    )
+    parser.add_argument(
+        "--hours",
+        type=float,
+        default=None,
+        help="Run for this many hours then stop (e.g., --hours 10)",
+    )
+    parser.add_argument(
+        "--report",
+        type=str,
+        metavar="LOG_FILE",
+        help="View a saved session report",
+    )
     
     args = parser.parse_args()
     
     if args.live and args.paper:
         print("Error: Cannot specify both --live and --paper")
         sys.exit(1)
+    
+    # View report mode
+    if args.report:
+        from trade_logger import print_session_report
+        from pathlib import Path
+        print_session_report(Path(args.report))
+        sys.exit(0)
     
     # List markets mode
     if args.list_markets:
@@ -288,10 +351,20 @@ if __name__ == "__main__":
     # Determine paper mode
     paper_mode = not args.live  # Default to paper unless --live
     
+    # If hours specified, enable continuous mode
+    continuous = args.continuous or (args.hours is not None)
+    
     # Run with auto-discovery or manual config
-    asyncio.run(main(
-        paper_mode=paper_mode,
-        asset=args.asset,
-        auto_discover=args.discover,
-    ))
-
+    if args.discover or continuous:
+        asyncio.run(run_with_discovery(
+            asset=args.asset,
+            paper_mode=paper_mode,
+            continuous=continuous,
+            duration_hours=args.hours,
+        ))
+    else:
+        asyncio.run(main(
+            paper_mode=paper_mode,
+            asset=args.asset,
+            auto_discover=args.discover,
+        ))

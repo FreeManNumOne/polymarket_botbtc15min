@@ -1,0 +1,61 @@
+{
+  "session_name": "20251215_004955",
+  "session_start": "2025-12-15T00:49:55.515239",
+  "session_end": "2025-12-15T00:50:46.209849",
+  "trades": [
+    {
+      "timestamp": "2025-12-15T00:50:06.158661",
+      "market_slug": "btc-updown-15m-1765788300",
+      "asset": "BTC",
+      "side": "NO",
+      "action": "BUY",
+      "price": 0.48,
+      "quantity": 104.16666666666667,
+      "value": 50.0,
+      "state": "LEGGED_NO"
+    },
+    {
+      "timestamp": "2025-12-15T00:50:46.209081",
+      "market_slug": "btc-updown-15m-1765788300",
+      "asset": "BTC",
+      "side": "YES",
+      "action": "BUY",
+      "price": 0.51,
+      "quantity": 98.0392156862745,
+      "value": 50.0,
+      "state": "LOCKED"
+    }
+  ],
+  "cycles": [
+    {
+      "cycle_id": "BTC_004956",
+      "market_slug": "btc-updown-15m-1765788300",
+      "asset": "BTC",
+      "start_time": "2025-12-15T00:49:56.044091",
+      "end_time": "2025-12-15T00:50:46.209810",
+      "up_entry_price": 0.51,
+      "up_entry_qty": 98.0392156862745,
+      "down_entry_price": 0.48,
+      "down_entry_qty": 104.16666666666667,
+      "total_cost": 100.0,
+      "locked_profit": 96.11687812379888,
+      "status": "LOCKED"
+    }
+  ],
+  "stats": {
+    "total_trades": 2,
+    "total_cycles": 1,
+    "completed_cycles": 1,
+    "locked_cycles": 1,
+    "stopped_cycles": 0,
+    "expired_cycles": 0,
+    "gross_profit": 96.11687812379888,
+    "gross_loss": 0.0,
+    "net_pnl": 96.11687812379888,
+    "win_rate": 1.0,
+    "avg_profit_per_cycle": 96.11687812379888,
+    "start_time": "2025-12-15T00:49:55.515239",
+    "end_time": "2025-12-15T00:50:46.209884",
+    "duration_hours": 0.01408184638888889
+  }
+}

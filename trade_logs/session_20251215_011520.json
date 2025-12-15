@@ -1,0 +1,35 @@
+{
+  "session_name": "20251215_011520",
+  "session_start": "2025-12-15T01:15:20.275389",
+  "session_end": "2025-12-15T01:15:24.084596",
+  "trades": [
+    {
+      "timestamp": "2025-12-15T01:15:24.084573",
+      "market_slug": "btc-updown-15m-1765790100",
+      "asset": "BTC",
+      "side": "NO",
+      "action": "BUY",
+      "price": 0.49,
+      "quantity": 102.04081632653062,
+      "value": 50.0,
+      "state": "LEGGED_NO"
+    }
+  ],
+  "cycles": [],
+  "stats": {
+    "total_trades": 1,
+    "total_cycles": 0,
+    "completed_cycles": 0,
+    "locked_cycles": 0,
+    "stopped_cycles": 0,
+    "expired_cycles": 0,
+    "gross_profit": 0.0,
+    "gross_loss": 0.0,
+    "net_pnl": 0.0,
+    "win_rate": 0.0,
+    "avg_profit_per_cycle": 0.0,
+    "start_time": "2025-12-15T01:15:20.275389",
+    "end_time": "2025-12-15T01:15:24.084637",
+    "duration_hours": 0.001058125
+  }
+}

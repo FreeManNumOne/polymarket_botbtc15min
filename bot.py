@@ -17,8 +17,9 @@ from config import Config
 from state_machine import StateMachine, BotState
 from order_manager import BaseOrderManager, OrderSide, Order, OrderBook
 from market_data import MarketDataManager, PriceUpdate
-from pricing import black_scholes_binary, minutes_to_years, get_skewed_bid
+from pricing import get_skewed_bid
 from safety import SafetyMonitor, SafetyConfig, emergency_exit, RiskLimits
+from trade_logger import TradeLogger
 
 logger = logging.getLogger(__name__)
 
@@ -37,11 +38,17 @@ class LeggedArbBot:
         self,
         config: Config,
         order_manager: BaseOrderManager,
-        market_data: MarketDataManager,
+        market_data: Optional[MarketDataManager] = None,
+        trade_logger: Optional[TradeLogger] = None,
+        market_slug: str = "",
+        asset: str = "BTC",
     ):
         self.config = config
         self.order_manager = order_manager
         self.market_data = market_data
+        self.trade_logger = trade_logger
+        self.market_slug = market_slug
+        self.asset = asset
         
         self.state_machine = StateMachine()
         self.safety = SafetyMonitor(SafetyConfig(
@@ -64,7 +71,8 @@ class LeggedArbBot:
         
         # Set up callbacks
         self.order_manager.set_fill_callback(self._on_fill)
-        self.market_data.add_callback(self._on_price_update)
+        if self.market_data:
+            self.market_data.add_callback(self._on_price_update)
     
     def set_expiry(self, expiry_timestamp: float) -> None:
         """Set the current market's expiry timestamp."""
@@ -84,6 +92,17 @@ class LeggedArbBot:
         # Update state machine
         new_state = self.state_machine.on_fill(side, price, qty)
         
+        # Log trade
+        if self.trade_logger:
+            self.trade_logger.record_trade(
+                side=side,
+                price=price,
+                quantity=qty,
+                state=new_state.name,
+                market_slug=self.market_slug,
+                asset=self.asset,
+            )
+        
         # Clear the filled order from tracking
         order_side = OrderSide.YES if side == "YES" else OrderSide.NO
         self._active_orders[order_side] = None
@@ -93,27 +112,56 @@ class LeggedArbBot:
             profit = self.state_machine.inventory.locked_profit * qty
             self.risk_limits.record_pnl(profit)
             logger.info(f"🔒 LOCKED! Profit: ${profit:.4f}")
+            
+            # Complete the trading cycle
+            if self.trade_logger:
+                self.trade_logger.complete_cycle("LOCKED", profit)
+    
+    async def _get_real_fair_values(self) -> tuple[float, float]:
+        """
+        Get fair values from REAL Polymarket order book mid-prices.
+        
+        Returns:
+            (fv_yes, fv_no): Fair values based on real market data
+        """
+        try:
+            # Fetch real order books from Polymarket
+            yes_book = await self.order_manager.get_order_book(OrderSide.YES)
+            no_book = await self.order_manager.get_order_book(OrderSide.NO)
+            
+            # Calculate mid-price for YES
+            if yes_book.best_bid and yes_book.best_ask:
+                fv_yes = (yes_book.best_bid + yes_book.best_ask) / 2
+            elif yes_book.best_bid:
+                fv_yes = yes_book.best_bid
+            elif yes_book.best_ask:
+                fv_yes = yes_book.best_ask
+            else:
+                fv_yes = 0.50  # Fallback
+            
+            # Calculate mid-price for NO
+            if no_book.best_bid and no_book.best_ask:
+                fv_no = (no_book.best_bid + no_book.best_ask) / 2
+            elif no_book.best_bid:
+                fv_no = no_book.best_bid
+            elif no_book.best_ask:
+                fv_no = no_book.best_ask
+            else:
+                fv_no = 0.50  # Fallback
+            
+            return fv_yes, fv_no
+            
+        except Exception as e:
+            logger.warning(f"Failed to get real prices: {e}, using 50/50")
+            return 0.50, 0.50
     
     def _calculate_fair_values(self) -> tuple[float, float]:
         """
-        Calculate fair values for YES (Up) and NO (Down).
-        
-        For up/down 15-minute markets, price direction over short periods
-        is essentially a random walk. Fair value is approximately 50/50.
-        
-        Note: Could enhance with momentum indicators or order flow analysis,
-        but for arbitrage purposes we just want to capture the spread.
+        Synchronous wrapper - returns cached fair values.
+        Call _get_real_fair_values() in async context for fresh data.
         """
-        # For up/down markets, fair value is ~50/50
-        # Could incorporate short-term momentum here if desired
-        base_fair_value = 0.50
-        
-        # Optional: slight momentum adjustment based on recent price movement
-        # For now, keep it simple at 50/50
-        fv_yes = base_fair_value  # Up
-        fv_no = 1.0 - fv_yes       # Down
-        
-        return fv_yes, fv_no
+        # Return cached values or default
+        return getattr(self, '_cached_fv_yes', 0.50), getattr(self, '_cached_fv_no', 0.50)
     
     def _calculate_hedge_price(self, cost_basis: float) -> float:
         """
@@ -171,6 +219,10 @@ class LeggedArbBot:
         self._tick_count += 1
         self._last_tick_time = datetime.now()
         
+        # Check for fills from real market movement (realistic mode)
+        if hasattr(self.order_manager, 'check_pending_fills'):
+            await self.order_manager.check_pending_fills()
+        
         # Safety checks
         if not self._run_safety_checks():
             return
@@ -182,11 +234,15 @@ class LeggedArbBot:
             return
         
         state = self.state_machine.state
-        fv_yes, fv_no = self._calculate_fair_values()
+        
+        # Get REAL fair values from Polymarket order books
+        fv_yes, fv_no = await self._get_real_fair_values()
+        self._cached_fv_yes = fv_yes
+        self._cached_fv_no = fv_no
         
         logger.debug(
             f"Tick #{self._tick_count} | State: {state.name} | "
-            f"BTC: ${self._btc_price:,.0f} | FV: {fv_yes:.4f}/{fv_no:.4f}"
+            f"FV: YES={fv_yes:.4f} NO={fv_no:.4f}"
         )
         
         # Execute phase-specific logic

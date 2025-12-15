@@ -142,6 +142,96 @@ class BinanceWebSocket:
             logger.info("Binance WebSocket disconnected")
 
 
+class CoinGeckoPriceFeed:
+    """
+    Fallback price feed using CoinGecko REST API.
+    Used when Binance WebSocket is blocked (HTTP 451 in US).
+    """
+    
+    COINGECKO_URL = "https://api.coingecko.com/api/v3/simple/price"
+    
+    def __init__(self, symbols: list[str] = None):
+        self.symbols = symbols or ["btcusdt"]
+        self._prices: Dict[str, float] = {}
+        self._callbacks: list[PriceCallback] = []
+        self._running = False
+        self._session = None
+    
+    def add_callback(self, callback: PriceCallback) -> None:
+        self._callbacks.append(callback)
+    
+    def get_price(self, symbol: str = "btcusdt") -> Optional[float]:
+        return self._prices.get(symbol.lower())
+    
+    async def _fetch_prices(self) -> None:
+        """Fetch prices from CoinGecko API."""
+        try:
+            if self._session is None:
+                import aiohttp
+                self._session = aiohttp.ClientSession()
+            
+            # Map symbols to CoinGecko IDs
+            coin_ids = []
+            if any("btc" in s.lower() for s in self.symbols):
+                coin_ids.append("bitcoin")
+            if any("eth" in s.lower() for s in self.symbols):
+                coin_ids.append("ethereum")
+            
+            if not coin_ids:
+                return
+            
+            params = {
+                "ids": ",".join(coin_ids),
+                "vs_currencies": "usd"
+            }
+            
+            async with self._session.get(self.COINGECKO_URL, params=params, timeout=10) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    
+                    if "bitcoin" in data:
+                        price = data["bitcoin"]["usd"]
+                        self._prices["btcusdt"] = price
+                        self._notify("btcusdt", price)
+                    
+                    if "ethereum" in data:
+                        price = data["ethereum"]["usd"]
+                        self._prices["ethusdt"] = price
+                        self._notify("ethusdt", price)
+                        
+        except Exception as e:
+            logger.debug(f"CoinGecko fetch error: {e}")
+    
+    def _notify(self, symbol: str, price: float) -> None:
+        """Notify callbacks of price update."""
+        update = PriceUpdate(
+            symbol=symbol,
+            price=price,
+            timestamp=datetime.now(),
+            source="coingecko",
+        )
+        for callback in self._callbacks:
+            try:
+                callback(update)
+            except Exception as e:
+                logger.error(f"Callback error: {e}")
+    
+    async def connect(self) -> None:
+        """Poll CoinGecko API for prices."""
+        self._running = True
+        logger.info("Using CoinGecko REST API for price data")
+        
+        while self._running:
+            await self._fetch_prices()
+            await asyncio.sleep(5)  # Poll every 5 seconds (rate limit friendly)
+    
+    async def disconnect(self) -> None:
+        """Stop polling."""
+        self._running = False
+        if self._session:
+            await self._session.close()
+
+
 class SimulatedPriceFeed:
     """
     Simulated price feed for testing.
@@ -207,22 +297,31 @@ class SimulatedPriceFeed:
 
 class MarketDataManager:
     """
-    Unified interface for market data across sources.
+    Unified interface for market data.
+    Uses CoinGecko API by default (works worldwide including US).
     """
     
-    def __init__(self, use_live: bool = True, symbols: list[str] = None):
+    def __init__(
+        self,
+        use_live: bool = True,
+        symbols: list[str] = None,
+        force_simulated: bool = False,
+    ):
         """
         Args:
-            use_live: If True, use live Binance data; otherwise, simulated
+            use_live: If True, use live price data
             symbols: Symbols to track
+            force_simulated: Force simulated prices (for unit tests only)
         """
-        self.use_live = use_live
         self.symbols = symbols or ["btcusdt"]
         
-        if use_live:
-            self._feed = BinanceWebSocket(self.symbols)
-        else:
+        if force_simulated:
             self._feed = SimulatedPriceFeed()
+            self.use_live = False
+        else:
+            # Use CoinGecko (works in US, Binance WebSocket is blocked)
+            self._feed = CoinGeckoPriceFeed(self.symbols)
+            self.use_live = True
     
     def add_callback(self, callback: PriceCallback) -> None:
         """Add callback for price updates."""

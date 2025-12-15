@@ -7,13 +7,19 @@ Supports both live trading and paper trading modes.
 import asyncio
 import logging
 import uuid
+import random
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, Dict, List, Callable, Awaitable
 from enum import Enum
 
+import aiohttp
+
 logger = logging.getLogger(__name__)
+
+# Polymarket CLOB API
+CLOB_API_URL = "https://clob.polymarket.com"
 
 
 class OrderSide(Enum):
@@ -70,6 +76,12 @@ class OrderBook:
     def spread(self) -> Optional[float]:
         if self.best_bid and self.best_ask:
             return self.best_ask - self.best_bid
+        return None
+    
+    @property
+    def mid_price(self) -> Optional[float]:
+        if self.best_bid and self.best_ask:
+            return (self.best_bid + self.best_ask) / 2
         return None
 
 
@@ -141,22 +153,104 @@ class BaseOrderManager(ABC):
 
 class PaperOrderManager(BaseOrderManager):
     """
-    Paper trading order manager for testing.
-    Simulates fills based on market price movements.
+    Paper trading order manager with REAL Polymarket order book data.
+    Fetches live prices from Polymarket but simulates fills locally.
+    
+    realistic_mode=True: Only fills when market price actually crosses your order
+    realistic_mode=False: Random 5% fill chance per tick (for faster testing)
     """
     
-    def __init__(self, yes_token_id: str, no_token_id: str):
+    def __init__(
+        self,
+        yes_token_id: str,
+        no_token_id: str,
+        fill_probability: float = 0.05,  # 5% chance per tick (only if realistic_mode=False)
+        realistic_mode: bool = True,  # True = only fill on real price crosses
+    ):
         super().__init__(yes_token_id, no_token_id)
-        self._simulated_books: Dict[OrderSide, OrderBook] = {
-            OrderSide.YES: OrderBook(bids=[(0.50, 100)], asks=[(0.52, 100)]),
-            OrderSide.NO: OrderBook(bids=[(0.48, 100)], asks=[(0.50, 100)]),
-        }
-        logger.info("Paper trading mode initialized")
+        self.fill_probability = fill_probability
+        self.realistic_mode = realistic_mode
+        self._session: Optional[aiohttp.ClientSession] = None
+        self._cached_books: Dict[OrderSide, OrderBook] = {}
+        self._cache_time: float = 0
+        self._cache_ttl: float = 0.5  # Refresh every 0.5 seconds
+        
+        mode_str = "REALISTIC (fills only on price cross)" if realistic_mode else f"RANDOM (fill prob: {fill_probability:.0%})"
+        logger.info(f"Paper trading with LIVE order books - {mode_str}")
+    
+    async def _get_session(self) -> aiohttp.ClientSession:
+        """Get or create HTTP session."""
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession()
+        return self._session
+    
+    async def _fetch_live_order_book(self, token_id: str) -> OrderBook:
+        """Fetch real order book from Polymarket CLOB API."""
+        try:
+            session = await self._get_session()
+            url = f"{CLOB_API_URL}/book"
+            params = {"token_id": token_id}
+            
+            async with session.get(url, params=params, timeout=5) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    
+                    # Parse bids and asks
+                    bids = []
+                    asks = []
+                    
+                    for bid in data.get("bids", []):
+                        price = float(bid.get("price", 0))
+                        size = float(bid.get("size", 0))
+                        if price > 0 and size > 0:
+                            bids.append((price, size))
+                    
+                    for ask in data.get("asks", []):
+                        price = float(ask.get("price", 0))
+                        size = float(ask.get("size", 0))
+                        if price > 0 and size > 0:
+                            asks.append((price, size))
+                    
+                    # Sort: bids descending, asks ascending
+                    bids.sort(key=lambda x: x[0], reverse=True)
+                    asks.sort(key=lambda x: x[0])
+                    
+                    if bids or asks:
+                        return OrderBook(bids=bids, asks=asks)
+                        
+        except asyncio.TimeoutError:
+            logger.debug("Timeout fetching order book")
+        except Exception as e:
+            logger.debug(f"Error fetching order book: {e}")
+        
+        # Fallback to default if API fails
+        return OrderBook(bids=[(0.50, 100)], asks=[(0.52, 100)])
+    
+    async def get_order_book(self, side: OrderSide) -> OrderBook:
+        """Get live order book from Polymarket."""
+        import time
+        
+        now = time.time()
+        if now - self._cache_time > self._cache_ttl:
+            # Refresh both books
+            yes_book = await self._fetch_live_order_book(self.yes_token_id)
+            no_book = await self._fetch_live_order_book(self.no_token_id)
+            
+            self._cached_books[OrderSide.YES] = yes_book
+            self._cached_books[OrderSide.NO] = no_book
+            self._cache_time = now
+            
+            # Log real prices as percentages
+            yes_mid = (yes_book.best_bid + yes_book.best_ask) / 2 if yes_book.best_bid and yes_book.best_ask else yes_book.best_bid or yes_book.best_ask or 0.5
+            no_mid = (no_book.best_bid + no_book.best_ask) / 2 if no_book.best_bid and no_book.best_ask else no_book.best_bid or no_book.best_ask or 0.5
+            logger.info(f"📊 MARKET: YES {yes_mid*100:.1f}% | NO {no_mid*100:.1f}%")
+        
+        return self._cached_books.get(side, OrderBook(bids=[(0.50, 100)], asks=[(0.52, 100)]))
     
     async def place_limit_buy(
         self, side: OrderSide, price: float, size: float
     ) -> Order:
-        """Place a simulated limit order."""
+        """Place a simulated limit order with real price checking."""
         order = Order(
             id=f"paper_{uuid.uuid4().hex[:8]}",
             side=side,
@@ -166,15 +260,45 @@ class PaperOrderManager(BaseOrderManager):
             token_id=self.get_token_id(side),
         )
         self.orders[order.id] = order
-        logger.info(f"[PAPER] Placed {side.value} bid: {size}@{price:.4f}")
+        
+        # Check if we can fill immediately against real order book
+        book = await self.get_order_book(side)
+        
+        if book.best_ask and price >= book.best_ask:
+            # Our bid is at or above the ask - immediate fill!
+            fill_price = book.best_ask
+            logger.info(f"[PAPER] 🎯 CROSSED SPREAD: {side.value} {size:.2f}@{fill_price:.4f}")
+            order.status = OrderStatus.FILLED
+            order.filled_qty = size
+            order.filled_avg_price = fill_price
+            await self._notify_fill(side.value, fill_price, size)
+        else:
+            logger.info(f"[PAPER] Placed {side.value} bid: {size:.2f}@{price:.4f}")
+            
+            # REALISTIC MODE: Only fill if someone actually sells to us
+            # Check if any trade happens at or below our price
+            # This tracks until order is cancelled or market crosses
+            if not self.realistic_mode:
+                # Legacy random mode for testing
+                if random.random() < self.fill_probability:
+                    asyncio.create_task(self._delayed_fill(order.id, delay=random.uniform(0.5, 2.0)))
+            # In realistic mode, fills only happen via check_pending_fills()
+        
         return order
+    
+    async def _delayed_fill(self, order_id: str, delay: float = 0.5) -> None:
+        """Fill an order after a delay."""
+        await asyncio.sleep(delay)
+        await self.simulate_fill(order_id)
     
     async def cancel_order(self, order_id: str) -> bool:
         """Cancel a simulated order."""
         if order_id in self.orders:
-            self.orders[order_id].status = OrderStatus.CANCELLED
-            logger.info(f"[PAPER] Cancelled order {order_id}")
-            return True
+            order = self.orders[order_id]
+            if order.is_active:
+                order.status = OrderStatus.CANCELLED
+                logger.debug(f"[PAPER] Cancelled {order_id}")
+                return True
         return False
     
     async def cancel_all_orders(self) -> int:
@@ -184,12 +308,41 @@ class PaperOrderManager(BaseOrderManager):
             if order.is_active:
                 order.status = OrderStatus.CANCELLED
                 count += 1
-        logger.info(f"[PAPER] Cancelled {count} orders")
+        if count > 0:
+            logger.info(f"[PAPER] Cancelled {count} orders")
         return count
     
+    async def check_pending_fills(self) -> int:
+        """
+        Check if any open orders should be filled based on current market prices.
+        Called each tick in realistic mode.
+        Returns number of fills that occurred.
+        """
+        fills = 0
+        for order in list(self.orders.values()):
+            if order.status != OrderStatus.OPEN:
+                continue
+            
+            # Get current order book for this side
+            side = order.side
+            book = await self.get_order_book(side)
+            
+            # For a limit BUY: we get filled if someone sells at/below our price
+            # In practice, this means best_ask <= our bid price
+            if book.best_ask and book.best_ask <= order.price:
+                fill_price = book.best_ask
+                logger.info(f"[PAPER] 🎯 FILL: {side.value} {order.size:.2f}@{fill_price:.4f}")
+                order.status = OrderStatus.FILLED
+                order.filled_qty = order.size
+                order.filled_avg_price = fill_price
+                await self._notify_fill(side.value, fill_price, order.size)
+                fills += 1
+        
+        return fills
+    
     async def market_buy(self, side: OrderSide, size: float) -> Order:
-        """Simulate a market buy at best ask."""
-        book = self._simulated_books[side]
+        """Market buy at real best ask price."""
+        book = await self.get_order_book(side)
         fill_price = book.best_ask or 0.55
         
         order = Order(
@@ -204,43 +357,39 @@ class PaperOrderManager(BaseOrderManager):
         )
         self.orders[order.id] = order
         
-        logger.info(f"[PAPER] Market buy {side.value}: {size}@{fill_price:.4f}")
+        logger.info(f"[PAPER] 🎯 MARKET BUY: {side.value} {size:.2f}@{fill_price:.4f}")
         await self._notify_fill(side.value, fill_price, size)
         
         return order
-    
-    async def get_order_book(self, side: OrderSide) -> OrderBook:
-        """Return simulated order book."""
-        return self._simulated_books[side]
     
     async def refresh_order_status(self, order_id: str) -> Order:
         """Return current order status."""
         return self.orders.get(order_id)
     
-    def update_simulated_book(
-        self, side: OrderSide, best_bid: float, best_ask: float
-    ) -> None:
-        """Update simulated order book for testing."""
-        self._simulated_books[side] = OrderBook(
-            bids=[(best_bid, 100)],
-            asks=[(best_ask, 100)],
-        )
-    
     async def simulate_fill(self, order_id: str, fill_price: Optional[float] = None) -> bool:
-        """Manually trigger a fill for testing."""
+        """Trigger a fill for an order."""
         order = self.orders.get(order_id)
         if not order or not order.is_active:
             return False
         
-        price = fill_price or order.price
+        # Use real bid price from order book if not specified
+        if fill_price is None:
+            book = await self.get_order_book(order.side)
+            fill_price = order.price  # Fill at our bid price
+        
         order.status = OrderStatus.FILLED
         order.filled_qty = order.size
-        order.filled_avg_price = price
+        order.filled_avg_price = fill_price
         
-        logger.info(f"[PAPER] Simulated fill: {order.side.value} {order.size}@{price:.4f}")
-        await self._notify_fill(order.side.value, price, order.size)
+        logger.info(f"[PAPER] 🎯 FILL: {order.side.value} {order.size:.2f}@{fill_price:.4f}")
+        await self._notify_fill(order.side.value, fill_price, order.size)
         
         return True
+    
+    async def close(self) -> None:
+        """Close HTTP session."""
+        if self._session and not self._session.closed:
+            await self._session.close()
 
 
 class LiveOrderManager(BaseOrderManager):
@@ -266,7 +415,6 @@ class LiveOrderManager(BaseOrderManager):
         
         try:
             # py-clob-client order format
-            # Note: The actual API call format may vary - adjust as needed
             response = await asyncio.to_thread(
                 self.client.create_and_post_order,
                 {
@@ -325,7 +473,6 @@ class LiveOrderManager(BaseOrderManager):
         if not book.best_ask:
             raise ValueError(f"No asks available for {side.value}")
         
-        # Place limit order at ask price for immediate fill
         return await self.place_limit_buy(side, book.best_ask, size)
     
     async def get_order_book(self, side: OrderSide) -> OrderBook:
@@ -356,7 +503,6 @@ class LiveOrderManager(BaseOrderManager):
             if order_id in self.orders:
                 order = self.orders[order_id]
                 
-                # Update status based on response
                 status_map = {
                     "open": OrderStatus.OPEN,
                     "filled": OrderStatus.FILLED,
@@ -369,7 +515,6 @@ class LiveOrderManager(BaseOrderManager):
                 order.filled_qty = float(response.get("filledSize", 0))
                 order.filled_avg_price = float(response.get("avgFillPrice", 0))
                 
-                # Check if newly filled
                 if order.status == OrderStatus.FILLED and order.filled_qty > 0:
                     await self._notify_fill(
                         order.side.value,
@@ -385,10 +530,7 @@ class LiveOrderManager(BaseOrderManager):
         return self.orders.get(order_id)
     
     async def poll_for_fills(self, interval: float = 1.0) -> None:
-        """
-        Continuously poll for order fills.
-        Should be run as a background task.
-        """
+        """Continuously poll for order fills."""
         while True:
             for order_id in list(self.orders.keys()):
                 order = self.orders.get(order_id)
