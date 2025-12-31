@@ -129,6 +129,7 @@ async def run_with_discovery(
                     from py_clob_client.client import ClobClient
                     from py_clob_client.clob_types import ApiCreds
                     from py_clob_client.clob_types import BalanceAllowanceParams
+                    from py_clob_client.clob_types import AssetType
                     
                     creds = None
                     if config.api_key and config.api_secret and config.api_passphrase:
@@ -156,7 +157,10 @@ async def run_with_discovery(
                     try:
                         bal = await asyncio.to_thread(
                             clob_client.get_balance_allowance,
-                            BalanceAllowanceParams(signature_type=config.signature_type),
+                            BalanceAllowanceParams(
+                                asset_type=AssetType.COLLATERAL,
+                                signature_type=config.signature_type,
+                            ),
                         )
                         logger.info(f"💰 Balance/allowance: {bal}")
                     except Exception as e:
@@ -269,6 +273,7 @@ async def main(paper_mode: bool = None, asset: str = None, auto_discover: bool =
         from py_clob_client.client import ClobClient
         from py_clob_client.clob_types import ApiCreds
         from py_clob_client.clob_types import BalanceAllowanceParams
+        from py_clob_client.clob_types import AssetType
 
         creds = None
         if config.api_key and config.api_secret and config.api_passphrase:
@@ -295,7 +300,10 @@ async def main(paper_mode: bool = None, asset: str = None, auto_discover: bool =
         try:
             bal = await asyncio.to_thread(
                 clob_client.get_balance_allowance,
-                BalanceAllowanceParams(signature_type=config.signature_type),
+                BalanceAllowanceParams(
+                    asset_type=AssetType.COLLATERAL,
+                    signature_type=config.signature_type,
+                ),
             )
             logger.info(f"💰 Balance/allowance: {bal}")
         except Exception as e:
