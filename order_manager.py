@@ -510,6 +510,18 @@ class LiveOrderManager(BaseOrderManager):
             return order
             
         except Exception as e:
+            # Common live failure: insufficient collateral balance or missing ERC20 allowance.
+            # Keep behavior (raise) but provide a clearer operator hint.
+            try:
+                from py_clob_client.exceptions import PolyApiException
+
+                if isinstance(e, PolyApiException) and "not enough balance / allowance" in str(e):
+                    logger.error(
+                        "Polymarket rejected the order: not enough collateral balance or ERC20 allowance. "
+                        "Fund the wallet with the collateral token and approve the Polymarket contracts."
+                    )
+            except Exception:
+                pass
             logger.error(f"Failed to place order: {e}")
             raise
     

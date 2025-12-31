@@ -128,6 +128,7 @@ async def run_with_discovery(
                 else:
                     from py_clob_client.client import ClobClient
                     from py_clob_client.clob_types import ApiCreds
+                    from py_clob_client.clob_types import BalanceAllowanceParams
                     
                     creds = None
                     if config.api_key and config.api_secret and config.api_passphrase:
@@ -148,6 +149,16 @@ async def run_with_discovery(
                     # If user didn't provide API creds, derive them for this signer.
                     if creds is None:
                         clob_client.set_api_creds(clob_client.derive_api_key())
+
+                    # Preflight: show collateral balance & allowance (helps diagnose 400 errors)
+                    try:
+                        bal = await asyncio.to_thread(
+                            clob_client.get_balance_allowance,
+                            BalanceAllowanceParams(signature_type=config.signature_type),
+                        )
+                        logger.info(f"💰 Balance/allowance: {bal}")
+                    except Exception as e:
+                        logger.warning(f"Could not fetch balance/allowance: {e}")
                     
                     order_manager = LiveOrderManager(
                         clob_client=clob_client,
@@ -250,6 +261,7 @@ async def main(paper_mode: bool = None, asset: str = None, auto_discover: bool =
     else:
         from py_clob_client.client import ClobClient
         from py_clob_client.clob_types import ApiCreds
+        from py_clob_client.clob_types import BalanceAllowanceParams
 
         creds = None
         if config.api_key and config.api_secret and config.api_passphrase:
@@ -269,6 +281,15 @@ async def main(paper_mode: bool = None, asset: str = None, auto_discover: bool =
         )
         if creds is None:
             clob_client.set_api_creds(clob_client.derive_api_key())
+
+        try:
+            bal = await asyncio.to_thread(
+                clob_client.get_balance_allowance,
+                BalanceAllowanceParams(signature_type=config.signature_type),
+            )
+            logger.info(f"💰 Balance/allowance: {bal}")
+        except Exception as e:
+            logger.warning(f"Could not fetch balance/allowance: {e}")
         
         order_manager = LiveOrderManager(
             clob_client=clob_client,
