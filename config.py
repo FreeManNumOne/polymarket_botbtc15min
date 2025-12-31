@@ -59,10 +59,9 @@ def load_config() -> Config:
     """Load configuration from environment variables."""
     
     # Validate required fields
-    # Backward compatible: prefer POLYMARKET_PRIVATE_KEY if present
-    private_key = os.getenv("POLYMARKET_PRIVATE_KEY", "") or os.getenv("PRIVATE_KEY", "")
+    private_key = os.getenv("POLYMARKET_PRIVATE_KEY", "")
     if not private_key and os.getenv("TRADING_MODE", "paper") == "live":
-        raise ValueError("POLYMARKET_PRIVATE_KEY (or PRIVATE_KEY) is required for live trading")
+        raise ValueError("POLYMARKET_PRIVATE_KEY is required for live trading")
 
     # Optional API key auth (Level 2). If these are not set, code will derive creds at runtime.
     api_key = os.getenv("POLYMARKET_API_KEY", "").strip()
