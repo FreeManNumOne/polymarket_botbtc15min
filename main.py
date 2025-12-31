@@ -127,13 +127,44 @@ async def run_with_discovery(
                     )
                 else:
                     from py_clob_client.client import ClobClient
+                    from py_clob_client.clob_types import ApiCreds
+                    from py_clob_client.clob_types import BalanceAllowanceParams
+                    from py_clob_client.clob_types import AssetType
                     
+                    creds = None
+                    if config.api_key and config.api_secret and config.api_passphrase:
+                        creds = ApiCreds(
+                            api_key=config.api_key,
+                            api_secret=config.api_secret,
+                            api_passphrase=config.api_passphrase,
+                        )
+                    if creds is None:
+                        raise ValueError(
+                            "Live trading requires POLYMARKET_API_KEY / POLYMARKET_API_SECRET / "
+                            "POLYMARKET_API_PASSPHRASE (no derive-api-key fallback)."
+                        )
+
                     clob_client = ClobClient(
                         host=config.clob_host,
                         chain_id=config.chain_id,
                         key=config.private_key,
+                        creds=creds,
+                        signature_type=config.signature_type,
+                        funder=(config.funder or None),
                     )
-                    clob_client.set_api_creds(clob_client.derive_api_key())
+
+                    # Preflight: show collateral balance & allowance (helps diagnose 400 errors)
+                    try:
+                        bal = await asyncio.to_thread(
+                            clob_client.get_balance_allowance,
+                            BalanceAllowanceParams(
+                                asset_type=AssetType.COLLATERAL,
+                                signature_type=config.signature_type,
+                            ),
+                        )
+                        logger.info(f"💰 Balance/allowance: {bal}")
+                    except Exception as e:
+                        logger.warning(f"Could not fetch balance/allowance: {e}")
                     
                     order_manager = LiveOrderManager(
                         clob_client=clob_client,
@@ -221,7 +252,12 @@ async def main(paper_mode: bool = None, asset: str = None, auto_discover: bool =
     # Validate configuration
     if not config.paper_mode:
         if not config.private_key:
-            logger.error("PRIVATE_KEY required for live trading")
+            logger.error("POLYMARKET_PRIVATE_KEY required for live trading")
+            sys.exit(1)
+        if not (config.api_key and config.api_secret and config.api_passphrase):
+            logger.error(
+                "POLYMARKET_API_KEY / POLYMARKET_API_SECRET / POLYMARKET_API_PASSPHRASE required for live trading"
+            )
             sys.exit(1)
         if not config.market.condition_id:
             logger.error("CONDITION_ID required - use --discover to auto-find markets")
@@ -235,13 +271,43 @@ async def main(paper_mode: bool = None, asset: str = None, auto_discover: bool =
         )
     else:
         from py_clob_client.client import ClobClient
+        from py_clob_client.clob_types import ApiCreds
+        from py_clob_client.clob_types import BalanceAllowanceParams
+        from py_clob_client.clob_types import AssetType
+
+        creds = None
+        if config.api_key and config.api_secret and config.api_passphrase:
+            creds = ApiCreds(
+                api_key=config.api_key,
+                api_secret=config.api_secret,
+                api_passphrase=config.api_passphrase,
+            )
+        if creds is None:
+            raise ValueError(
+                "Live trading requires POLYMARKET_API_KEY / POLYMARKET_API_SECRET / "
+                "POLYMARKET_API_PASSPHRASE (no derive-api-key fallback)."
+            )
         
         clob_client = ClobClient(
             host=config.clob_host,
             chain_id=config.chain_id,
             key=config.private_key,
+            creds=creds,
+            signature_type=config.signature_type,
+            funder=(config.funder or None),
         )
-        clob_client.set_api_creds(clob_client.derive_api_key())
+
+        try:
+            bal = await asyncio.to_thread(
+                clob_client.get_balance_allowance,
+                BalanceAllowanceParams(
+                    asset_type=AssetType.COLLATERAL,
+                    signature_type=config.signature_type,
+                ),
+            )
+            logger.info(f"💰 Balance/allowance: {bal}")
+        except Exception as e:
+            logger.warning(f"Could not fetch balance/allowance: {e}")
         
         order_manager = LiveOrderManager(
             clob_client=clob_client,

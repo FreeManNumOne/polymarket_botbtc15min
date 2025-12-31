@@ -20,6 +20,11 @@ def sample_config():
         private_key="test_key",
         clob_host="https://test.polymarket.com",
         chain_id=137,
+        api_key="test_api_key",
+        api_secret="test_api_secret",
+        api_passphrase="test_api_passphrase",
+        signature_type=2,
+        funder="",
         market=MarketConfig(
             condition_id="test_condition",
             yes_token_id="test_yes_token",

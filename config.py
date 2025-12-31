@@ -37,6 +37,13 @@ class Config:
     private_key: str
     clob_host: str
     chain_id: int
+
+    # Optional direct API creds (Level 2) + signing config
+    api_key: str
+    api_secret: str
+    api_passphrase: str
+    signature_type: int
+    funder: str
     
     # Market
     market: MarketConfig
@@ -52,9 +59,27 @@ def load_config() -> Config:
     """Load configuration from environment variables."""
     
     # Validate required fields
-    private_key = os.getenv("PRIVATE_KEY", "")
+    private_key = os.getenv("POLYMARKET_PRIVATE_KEY", "")
     if not private_key and os.getenv("TRADING_MODE", "paper") == "live":
-        raise ValueError("PRIVATE_KEY is required for live trading")
+        raise ValueError("POLYMARKET_PRIVATE_KEY is required for live trading")
+
+    # Optional API key auth (Level 2). If these are not set, code will derive creds at runtime.
+    api_key = os.getenv("POLYMARKET_API_KEY", "").strip()
+    api_secret = os.getenv("POLYMARKET_API_SECRET", "").strip()
+    api_passphrase = os.getenv("POLYMARKET_API_PASSPHRASE", "").strip()
+    if os.getenv("TRADING_MODE", "paper") == "live":
+        if not (api_key and api_secret and api_passphrase):
+            raise ValueError(
+                "POLYMARKET_API_KEY / POLYMARKET_API_SECRET / POLYMARKET_API_PASSPHRASE are required for live trading"
+            )
+
+    signature_type_raw = os.getenv("POLYMARKET_SIGNATURE_TYPE", "").strip()
+    try:
+        signature_type = int(signature_type_raw) if signature_type_raw else 2
+    except ValueError:
+        signature_type = 2
+
+    funder = os.getenv("POLYMARKET_FUNDER", "").strip()
     
     market = MarketConfig(
         condition_id=os.getenv("CONDITION_ID", ""),
@@ -76,6 +101,11 @@ def load_config() -> Config:
         private_key=private_key,
         clob_host=os.getenv("CLOB_HOST", "https://clob.polymarket.com"),
         chain_id=int(os.getenv("CHAIN_ID", "137")),
+        api_key=api_key,
+        api_secret=api_secret,
+        api_passphrase=api_passphrase,
+        signature_type=signature_type,
+        funder=funder,
         market=market,
         trading=trading,
         paper_mode=os.getenv("TRADING_MODE", "paper").lower() == "paper",
