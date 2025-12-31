@@ -127,13 +127,27 @@ async def run_with_discovery(
                     )
                 else:
                     from py_clob_client.client import ClobClient
+                    from py_clob_client.clob_types import ApiCreds
                     
+                    creds = None
+                    if config.api_key and config.api_secret and config.api_passphrase:
+                        creds = ApiCreds(
+                            api_key=config.api_key,
+                            api_secret=config.api_secret,
+                            api_passphrase=config.api_passphrase,
+                        )
+
                     clob_client = ClobClient(
                         host=config.clob_host,
                         chain_id=config.chain_id,
                         key=config.private_key,
+                        creds=creds,
+                        signature_type=config.signature_type,
+                        funder=(config.funder or None),
                     )
-                    clob_client.set_api_creds(clob_client.derive_api_key())
+                    # If user didn't provide API creds, derive them for this signer.
+                    if creds is None:
+                        clob_client.set_api_creds(clob_client.derive_api_key())
                     
                     order_manager = LiveOrderManager(
                         clob_client=clob_client,
@@ -235,13 +249,26 @@ async def main(paper_mode: bool = None, asset: str = None, auto_discover: bool =
         )
     else:
         from py_clob_client.client import ClobClient
+        from py_clob_client.clob_types import ApiCreds
+
+        creds = None
+        if config.api_key and config.api_secret and config.api_passphrase:
+            creds = ApiCreds(
+                api_key=config.api_key,
+                api_secret=config.api_secret,
+                api_passphrase=config.api_passphrase,
+            )
         
         clob_client = ClobClient(
             host=config.clob_host,
             chain_id=config.chain_id,
             key=config.private_key,
+            creds=creds,
+            signature_type=config.signature_type,
+            funder=(config.funder or None),
         )
-        clob_client.set_api_creds(clob_client.derive_api_key())
+        if creds is None:
+            clob_client.set_api_creds(clob_client.derive_api_key())
         
         order_manager = LiveOrderManager(
             clob_client=clob_client,
