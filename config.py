@@ -67,6 +67,11 @@ def load_config() -> Config:
     api_key = os.getenv("POLYMARKET_API_KEY", "").strip()
     api_secret = os.getenv("POLYMARKET_API_SECRET", "").strip()
     api_passphrase = os.getenv("POLYMARKET_API_PASSPHRASE", "").strip()
+    if os.getenv("TRADING_MODE", "paper") == "live":
+        if not (api_key and api_secret and api_passphrase):
+            raise ValueError(
+                "POLYMARKET_API_KEY / POLYMARKET_API_SECRET / POLYMARKET_API_PASSPHRASE are required for live trading"
+            )
 
     signature_type_raw = os.getenv("POLYMARKET_SIGNATURE_TYPE", "").strip()
     try:

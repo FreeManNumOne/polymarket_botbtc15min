@@ -137,6 +137,11 @@ async def run_with_discovery(
                             api_secret=config.api_secret,
                             api_passphrase=config.api_passphrase,
                         )
+                    if creds is None:
+                        raise ValueError(
+                            "Live trading requires POLYMARKET_API_KEY / POLYMARKET_API_SECRET / "
+                            "POLYMARKET_API_PASSPHRASE (no derive-api-key fallback)."
+                        )
 
                     clob_client = ClobClient(
                         host=config.clob_host,
@@ -146,9 +151,6 @@ async def run_with_discovery(
                         signature_type=config.signature_type,
                         funder=(config.funder or None),
                     )
-                    # If user didn't provide API creds, derive them for this signer.
-                    if creds is None:
-                        clob_client.set_api_creds(clob_client.derive_api_key())
 
                     # Preflight: show collateral balance & allowance (helps diagnose 400 errors)
                     try:
@@ -246,7 +248,12 @@ async def main(paper_mode: bool = None, asset: str = None, auto_discover: bool =
     # Validate configuration
     if not config.paper_mode:
         if not config.private_key:
-            logger.error("PRIVATE_KEY required for live trading")
+            logger.error("POLYMARKET_PRIVATE_KEY required for live trading")
+            sys.exit(1)
+        if not (config.api_key and config.api_secret and config.api_passphrase):
+            logger.error(
+                "POLYMARKET_API_KEY / POLYMARKET_API_SECRET / POLYMARKET_API_PASSPHRASE required for live trading"
+            )
             sys.exit(1)
         if not config.market.condition_id:
             logger.error("CONDITION_ID required - use --discover to auto-find markets")
@@ -270,6 +277,11 @@ async def main(paper_mode: bool = None, asset: str = None, auto_discover: bool =
                 api_secret=config.api_secret,
                 api_passphrase=config.api_passphrase,
             )
+        if creds is None:
+            raise ValueError(
+                "Live trading requires POLYMARKET_API_KEY / POLYMARKET_API_SECRET / "
+                "POLYMARKET_API_PASSPHRASE (no derive-api-key fallback)."
+            )
         
         clob_client = ClobClient(
             host=config.clob_host,
@@ -279,8 +291,6 @@ async def main(paper_mode: bool = None, asset: str = None, auto_discover: bool =
             signature_type=config.signature_type,
             funder=(config.funder or None),
         )
-        if creds is None:
-            clob_client.set_api_creds(clob_client.derive_api_key())
 
         try:
             bal = await asyncio.to_thread(
