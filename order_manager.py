@@ -406,6 +406,74 @@ class LiveOrderManager(BaseOrderManager):
         super().__init__(yes_token_id, no_token_id)
         self.client = clob_client
         logger.info("Live trading mode initialized")
+
+    @staticmethod
+    def _extract_order_id(response) -> str:
+        """
+        py-clob-client responses have varied over time.
+        Normalize common variants into a single order id string.
+        """
+        if response is None:
+            return ""
+
+        # Most common: dict payloads
+        if isinstance(response, dict):
+            return (
+                response.get("orderID")
+                or response.get("orderId")
+                or response.get("order_id")
+                or response.get("id")
+                or ""
+            )
+
+        # Fallback: object payloads
+        for attr in ("orderID", "orderId", "order_id", "id"):
+            val = getattr(response, attr, None)
+            if isinstance(val, str) and val:
+                return val
+        return ""
+
+    @staticmethod
+    def _normalize_order_book_summary(raw) -> "OrderBook":
+        """
+        Newer py-clob-client returns OrderBookSummary/OrderSummary objects.
+        Older code may expect dict-like structures. Convert to our internal OrderBook.
+        """
+        if raw is None:
+            return OrderBook(bids=[], asks=[])
+
+        def to_levels(levels):
+            out = []
+            if not levels:
+                return out
+            for lvl in levels:
+                # object style: OrderSummary(price='0.5', size='10')
+                if hasattr(lvl, "price") and hasattr(lvl, "size"):
+                    try:
+                        out.append((float(lvl.price), float(lvl.size)))
+                        continue
+                    except Exception:
+                        pass
+
+                # dict style: {"price": "...", "size": "..."}
+                if isinstance(lvl, dict):
+                    try:
+                        out.append((float(lvl.get("price", 0)), float(lvl.get("size", 0))))
+                        continue
+                    except Exception:
+                        pass
+            return out
+
+        # object style: OrderBookSummary(bids=[...], asks=[...])
+        bids_raw = getattr(raw, "bids", None) if not isinstance(raw, dict) else raw.get("bids")
+        asks_raw = getattr(raw, "asks", None) if not isinstance(raw, dict) else raw.get("asks")
+        bids = to_levels(bids_raw)
+        asks = to_levels(asks_raw)
+
+        # Ensure expected sorting (best first)
+        bids.sort(key=lambda x: x[0], reverse=True)
+        asks.sort(key=lambda x: x[0])
+        return OrderBook(bids=bids, asks=asks)
     
     async def place_limit_buy(
         self, side: OrderSide, price: float, size: float
@@ -414,19 +482,22 @@ class LiveOrderManager(BaseOrderManager):
         token_id = self.get_token_id(side)
         
         try:
-            # py-clob-client order format
-            response = await asyncio.to_thread(
-                self.client.create_and_post_order,
-                {
-                    "tokenID": token_id,
-                    "price": price,
-                    "size": size,
-                    "side": "BUY",
-                }
+            # py-clob-client (>=0.34.x) expects strongly-typed OrderArgs
+            from py_clob_client.clob_types import OrderArgs
+            from py_clob_client.order_builder.constants import BUY
+
+            order_args = OrderArgs(
+                token_id=token_id,
+                price=float(price),
+                size=float(size),
+                side=BUY,
             )
+
+            response = await asyncio.to_thread(self.client.create_and_post_order, order_args)
             
+            order_id = self._extract_order_id(response) or str(uuid.uuid4())
             order = Order(
-                id=response.get("orderID", str(uuid.uuid4())),
+                id=order_id,
                 side=side,
                 price=price,
                 size=size,
@@ -480,14 +551,8 @@ class LiveOrderManager(BaseOrderManager):
         token_id = self.get_token_id(side)
         
         try:
-            response = await asyncio.to_thread(
-                self.client.get_order_book, token_id
-            )
-            
-            bids = [(float(b["price"]), float(b["size"])) for b in response.get("bids", [])]
-            asks = [(float(a["price"]), float(a["size"])) for a in response.get("asks", [])]
-            
-            return OrderBook(bids=bids, asks=asks)
+            raw = await asyncio.to_thread(self.client.get_order_book, token_id)
+            return self._normalize_order_book_summary(raw)
             
         except Exception as e:
             logger.error(f"Failed to fetch order book: {e}")
@@ -509,11 +574,33 @@ class LiveOrderManager(BaseOrderManager):
                     "cancelled": OrderStatus.CANCELLED,
                 }
                 order.status = status_map.get(
-                    response.get("status", ""),
+                    (response.get("status", "") if isinstance(response, dict) else ""),
                     order.status
                 )
-                order.filled_qty = float(response.get("filledSize", 0))
-                order.filled_avg_price = float(response.get("avgFillPrice", 0))
+
+                if isinstance(response, dict):
+                    filled_size = (
+                        response.get("filledSize")
+                        or response.get("filled_size")
+                        or response.get("matchedSize")
+                        or response.get("matched_size")
+                        or 0
+                    )
+                    avg_fill_price = (
+                        response.get("avgFillPrice")
+                        or response.get("avg_fill_price")
+                        or response.get("averageFillPrice")
+                        or response.get("average_fill_price")
+                        or 0
+                    )
+                    try:
+                        order.filled_qty = float(filled_size or 0)
+                    except Exception:
+                        order.filled_qty = 0.0
+                    try:
+                        order.filled_avg_price = float(avg_fill_price or 0)
+                    except Exception:
+                        order.filled_avg_price = 0.0
                 
                 if order.status == OrderStatus.FILLED and order.filled_qty > 0:
                     await self._notify_fill(
